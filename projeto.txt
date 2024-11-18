@@ -1,0 +1,245 @@
+import flet as ft
+from functools import partial
+from datetime import datetime, date
+
+
+# MODELOS (POO)
+class Cliente:
+    def __init__(self, nome, email, telefone):
+        self.nome = nome
+        self.email = email
+        self.telefone = telefone
+        self.historico_reservas = []
+
+    def adicionar_reserva(self, reserva):
+        self.historico_reservas.append(reserva)
+
+
+class Quarto:
+    def __init__(self, numero, tipo, preco):
+        self.numero = numero
+        self.tipo = tipo
+        self.preco = preco
+        self.disponivel = True
+
+    def reservar(self):
+        self.disponivel = False
+
+    def liberar(self):
+        self.disponivel = True
+
+
+class Reserva:
+    def __init__(self, cliente, quarto, data_checkin, data_checkout):
+        self.cliente = cliente
+        self.quarto = quarto
+        self.data_checkin = data_checkin
+        self.data_checkout = data_checkout
+        self.status = "Confirmada"
+
+    def cancelar(self):
+        self.status = "Cancelada"
+        self.quarto.liberar()
+
+
+class GerenciadorDeReservas:
+    def __init__(self):
+        self.reservas = []
+        self.quartos = []
+
+    def adicionar_quarto(self, quarto):
+        self.quartos.append(quarto)
+
+    def verificar_disponibilidade(self, data_checkin=None, data_checkout=None):
+        quartos_disponiveis = []
+        for quarto in self.quartos:
+            if quarto.disponivel:
+                quartos_disponiveis.append(quarto)
+        return quartos_disponiveis
+
+    def criar_reserva(self, cliente, quarto, data_checkin, data_checkout):
+        if quarto.disponivel:
+            reserva = Reserva(cliente, quarto, data_checkin, data_checkout)
+            self.reservas.append(reserva)
+            quarto.reservar()
+            cliente.adicionar_reserva(reserva)
+            return reserva
+        return None
+
+    def listar_reservas(self):
+        return [r for r in self.reservas if r.status == "Confirmada"]
+
+
+# INTERFACE DO USUÁRIO
+def tela_principal(page: ft.Page, gerenciador: GerenciadorDeReservas):
+    page.title = "Sistema de Reservas de Hotel"
+    lista_quartos = ft.Column()
+    mensagem = ft.Text("", visible=False)
+
+    def atualizar_quartos():
+        lista_quartos.controls.clear()
+        quartos_disponiveis = gerenciador.verificar_disponibilidade()
+
+        if not quartos_disponiveis:
+            lista_quartos.controls.append(
+                ft.Text("Nenhum quarto disponível.", color="red")
+            )
+        else:
+            for quarto in quartos_disponiveis:
+                quarto_texto = f"Quarto {
+                    quarto.numero} - Tipo: {quarto.tipo} - Preço: R${quarto.preco}"
+                botao_reserva = ft.ElevatedButton(
+                    text="Reservar",
+                    on_click=partial(tela_formulario_reserva,
+                                     page, gerenciador, quarto),
+                )
+                lista_quartos.controls.append(
+                    ft.Row([ft.Text(quarto_texto), botao_reserva])
+                )
+
+        lista_quartos.update()
+
+    page.add(
+        ft.Text("Quartos Disponíveis", size=20, weight="bold"),
+        lista_quartos,
+        ft.Divider(),
+        ft.Row(
+            [
+                ft.ElevatedButton(
+                    text="Atualizar", on_click=lambda e: atualizar_quartos()
+                ),
+                ft.ElevatedButton(
+                    text="Gerenciar Reservas",
+                    on_click=lambda e: tela_gerenciar_reservas(
+                        page, gerenciador),
+                ),
+            ]
+        ),
+        mensagem,
+    )
+    atualizar_quartos()
+
+
+def tela_formulario_reserva(page, gerenciador, quarto, e):
+    page.clear()
+
+    nome_input = ft.TextField(label="Nome", width=300)
+    email_input = ft.TextField(label="Email", width=300)
+    telefone_input = ft.TextField(label="Telefone", width=300)
+    checkin_input = ft.DatePicker(label="Check-in", width=300)
+    checkout_input = ft.DatePicker(label="Check-out", width=300)
+    mensagem = ft.Text("", visible=False)
+
+    def validar_datas(checkin, checkout):
+        try:
+            data_checkin = datetime.strptime(checkin, "%Y-%m-%d").date()
+            data_checkout = datetime.strptime(checkout, "%Y-%m-%d").date()
+            return data_checkin < data_checkout and data_checkin >= date.today()
+        except Exception:
+            return False
+
+    def confirmar_reserva(e):
+        nome = nome_input.value
+        email = email_input.value
+        telefone = telefone_input.value
+        data_checkin = checkin_input.value
+        data_checkout = checkout_input.value
+
+        if not all([nome, email, telefone, data_checkin, data_checkout]):
+            mensagem.value = "Por favor, preencha todos os campos."
+            mensagem.color = "red"
+            mensagem.visible = True
+            mensagem.update()
+            return
+
+        if not validar_datas(data_checkin, data_checkout):
+            mensagem.value = "Datas inválidas. Verifique o check-in e check-out."
+            mensagem.color = "red"
+            mensagem.visible = True
+            mensagem.update()
+            return
+
+        cliente = Cliente(nome, email, telefone)
+        reserva = gerenciador.criar_reserva(
+            cliente, quarto, data_checkin, data_checkout
+        )
+
+        if reserva:
+            mensagem.value = "Reserva confirmada com sucesso!"
+            mensagem.color = "green"
+            mensagem.visible = True
+        else:
+            mensagem.value = "Erro ao realizar a reserva."
+            mensagem.color = "red"
+            mensagem.visible = True
+
+        mensagem.update()
+
+    page.add(
+        ft.Text(f"Reserva para Quarto {
+                quarto.numero} - {quarto.tipo}", size=20),
+        nome_input,
+        email_input,
+        telefone_input,
+        checkin_input,
+        checkout_input,
+        ft.ElevatedButton(text="Confirmar Reserva",
+                          on_click=confirmar_reserva),
+        mensagem,
+        ft.ElevatedButton(
+            text="Voltar", on_click=lambda e: tela_principal(page, gerenciador)
+        ),
+    )
+
+
+def tela_gerenciar_reservas(page, gerenciador):
+    page.clear()
+    lista_reservas = ft.Column()
+
+    reservas = gerenciador.listar_reservas()
+    if not reservas:
+        lista_reservas.controls.append(
+            ft.Text("Nenhuma reserva encontrada.", color="red")
+        )
+    else:
+        for reserva in reservas:
+            texto_reserva = (
+                f"Reserva: Quarto {
+                    reserva.quarto.numero} - Cliente: {reserva.cliente.nome}"
+            )
+            botao_cancelar = ft.ElevatedButton(
+                text="Cancelar",
+                on_click=lambda e, r=reserva: cancelar_reserva(
+                    r, lista_reservas),
+            )
+            lista_reservas.controls.append(
+                ft.Row([ft.Text(texto_reserva), botao_cancelar])
+            )
+
+    def cancelar_reserva(reserva, lista_reservas):
+        reserva.cancelar()
+        lista_reservas.controls.clear()
+        tela_gerenciar_reservas(page, gerenciador)
+
+    page.add(
+        ft.Text("Gerenciar Reservas", size=20, weight="bold"),
+        lista_reservas,
+        ft.ElevatedButton(
+            text="Voltar", on_click=lambda e: tela_principal(page, gerenciador)
+        ),
+    )
+
+
+# MAIN
+def main(page: ft.Page):
+    gerenciador = GerenciadorDeReservas()
+
+    # Adiciona quartos para teste
+    gerenciador.adicionar_quarto(Quarto(101, "Standard", 150))
+    gerenciador.adicionar_quarto(Quarto(102, "Deluxe", 200))
+    gerenciador.adicionar_quarto(Quarto(103, "Suite", 300))
+
+    tela_principal(page, gerenciador)
+
+
+ft.app(target=main)
